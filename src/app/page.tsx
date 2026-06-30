@@ -337,9 +337,9 @@ function mapRawNivel(raw: string | undefined): Nivel | null {
 }
 
 function classifyNivel(pct: number): Nivel {
-  if (pct < 40) return "bajo";
-  if (pct < 65) return "medio";
-  if (pct < 85) return "alto";
+  if (pct < 30) return "bajo";
+  if (pct < 45) return "medio";
+  if (pct < 65) return "alto";
   return "critico";
 }
 
