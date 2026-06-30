@@ -1139,6 +1139,16 @@ function TimeSelector({
   onToHourChange: (h: string) => void;
   onUseNow: () => void;
 }) {
+  const validToHours = useMemo(
+    () => hours.filter((h) => h >= fromHour),
+    [hours, fromHour],
+  );
+
+  const handleFromChange = (h: string) => {
+    onFromHourChange(h);
+    if (toHour < h) onToHourChange(h);
+  };
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -1186,7 +1196,7 @@ function TimeSelector({
             <span className={labelCls}>Desde</span>
             <select
               value={fromHour}
-              onChange={(e) => onFromHourChange(e.target.value)}
+              onChange={(e) => handleFromChange(e.target.value)}
               className={inputCls}
             >
               {hours.map((h) => (
@@ -1203,7 +1213,7 @@ function TimeSelector({
               onChange={(e) => onToHourChange(e.target.value)}
               className={inputCls}
             >
-              {hours.map((h) => (
+              {validToHours.map((h) => (
                 <option key={h} value={h}>
                   {h}
                 </option>
