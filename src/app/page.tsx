@@ -1,6 +1,26 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+  useId,
+} from "react";
+import { Inter, Barlow_Condensed } from "next/font/google";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-body",
+  display: "swap",
+});
+const display = Barlow_Condensed({
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+  variable: "--font-display",
+  display: "swap",
+});
 
 type Nivel = "bajo" | "medio" | "alto" | "critico";
 
@@ -66,6 +86,8 @@ type RouteForecast = {
   estacionesSinDatos: string[];
 };
 
+type HourlyAverage = { hora: string; avg: number; nivel: Nivel };
+
 const METRO_LINES: MetroLine[] = [
   {
     id: "L1",
@@ -113,7 +135,7 @@ const METRO_LINES: MetroLine[] = [
       "Cementerios",
       "Cerro Blanco",
       "Patronato",
-      "Puente Cal y Canto",
+      "Cal y Canto",
       "Santa Ana",
       "Los Héroes",
       "Toesca",
@@ -210,7 +232,7 @@ const METRO_LINES: MetroLine[] = [
     label: "Línea 5",
     color: "#149E4A",
     stations: [
-      "Plaza de Maipú",
+      "Plaza Maipú",
       "Santiago Bueras",
       "Del Sol",
       "Monte Tabor",
@@ -263,30 +285,34 @@ const METRO_LINES: MetroLine[] = [
 
 const NIVEL_META: Record<
   Nivel,
-  { label: string; dot: string; bar: string; chip: string }
+  { label: string; dot: string; bar: string; fill: string; chip: string }
 > = {
   bajo: {
     label: "Baja",
     dot: "bg-emerald-500",
     bar: "bg-emerald-500",
+    fill: "fill-emerald-500",
     chip: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
   },
   medio: {
     label: "Media",
     dot: "bg-amber-500",
     bar: "bg-amber-500",
+    fill: "fill-amber-500",
     chip: "bg-amber-500/10 text-amber-400 border-amber-500/30",
   },
   alto: {
     label: "Alta",
     dot: "bg-orange-500",
     bar: "bg-orange-500",
+    fill: "fill-orange-500",
     chip: "bg-orange-500/10 text-orange-400 border-orange-500/30",
   },
   critico: {
     label: "Crítica",
     dot: "bg-rose-600",
     bar: "bg-rose-600",
+    fill: "fill-rose-600",
     chip: "bg-rose-600/10 text-rose-400 border-rose-600/30",
   },
 };
@@ -604,6 +630,26 @@ function buildRouteForecast(
   };
 }
 
+function computeNetworkHourlyAverages(
+  stationOptions: StationOption[],
+  getFullDayEntries: (key: string) => PredictionEntry[],
+): HourlyAverage[] {
+  const map = new Map<string, number[]>();
+  stationOptions.forEach((opt) => {
+    getFullDayEntries(opt.key).forEach((e) => {
+      const arr = map.get(e.hora) ?? [];
+      arr.push(e.saturacion_pct);
+      map.set(e.hora, arr);
+    });
+  });
+  return Array.from(map.entries())
+    .map(([hora, pcts]) => {
+      const avg = average(pcts);
+      return { hora, avg, nivel: classifyNivel(avg) };
+    })
+    .sort((a, b) => a.hora.localeCompare(b.hora));
+}
+
 async function fetchPredictions(): Promise<PredictionsDataset> {
   const response = await fetch("/predictions.json");
   if (!response.ok) {
@@ -748,21 +794,35 @@ function useMetroPredictor() {
   };
 }
 
-const selectClass =
-  "rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500";
+function useEntrance(delayMs = 60) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), delayMs);
+    return () => clearTimeout(t);
+  }, [delayMs]);
+  return mounted;
+}
+
+const cardCls = "rounded-2xl border border-[#27272b] bg-[#161618] p-5";
+const cardClsGradient =
+  "rounded-2xl border border-[#27272b] bg-gradient-to-br from-[#1a1a1d] to-[#121214] p-6";
+const labelCls = "text-xs font-medium uppercase tracking-wide text-[#84827b]";
+const inputCls =
+  "rounded-lg border border-[#34343a] bg-[#19191c] px-3 py-2 text-sm text-[#f2f1ec] outline-none transition-colors focus:border-[#D62828] focus:ring-1 focus:ring-[#D62828]";
+const displayFont: React.CSSProperties = { fontFamily: "var(--font-display)" };
 
 function pillClass(active: boolean): string {
   return `rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
     active
-      ? "bg-cyan-500 text-zinc-950"
-      : "border border-zinc-700 text-zinc-400 hover:border-cyan-500 hover:text-cyan-400"
+      ? "bg-[#D62828] text-[#f6f3ec]"
+      : "border border-[#34343a] text-[#9b9a94] hover:border-[#D62828] hover:text-[#D62828]"
   }`;
 }
 
 function NivelChip({ nivel }: { nivel: Nivel | null }) {
   if (!nivel) {
     return (
-      <span className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-800/60 px-2.5 py-0.5 text-xs font-medium text-zinc-400">
+      <span className="inline-flex items-center rounded-full border border-[#34343a] bg-[#1c1c1f] px-2.5 py-0.5 text-xs font-medium text-[#84827b]">
         Sin datos
       </span>
     );
@@ -783,11 +843,103 @@ function LineBadge({ lineId }: { lineId: LineId }) {
   if (!line) return null;
   return (
     <span
-      className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-mono font-semibold text-white"
-      style={{ backgroundColor: line.color }}
+      className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-white"
+      style={{ backgroundColor: line.color, ...displayFont }}
     >
       {line.id}
     </span>
+  );
+}
+
+function TrainCarGauge({
+  pct,
+  nivel,
+  small = false,
+}: {
+  pct: number;
+  nivel: Nivel;
+  small?: boolean;
+}) {
+  const rawId = useId();
+  const clipId = `car-clip-${rawId.replace(/[:]/g, "")}`;
+  const meta = NIVEL_META[nivel];
+  const clamped = Math.max(0, Math.min(100, pct));
+  const fillHeight = (38 * clamped) / 100;
+  const fillY = 50 - fillHeight;
+
+  return (
+    <div className={small ? "h-9 w-16 shrink-0" : "h-14 w-24 shrink-0"}>
+      <svg viewBox="0 0 100 58" className="h-full w-full" aria-hidden="true">
+        <defs>
+          <clipPath id={clipId}>
+            <rect x="4" y="6" width="92" height="44" rx="11" />
+          </clipPath>
+        </defs>
+        <rect
+          x="4"
+          y="6"
+          width="92"
+          height="44"
+          rx="11"
+          fill="#1c1c1f"
+          stroke="#34343a"
+          strokeWidth="1.5"
+        />
+        <g clipPath={`url(#${clipId})`}>
+          <rect
+            x="4"
+            y={fillY}
+            width="92"
+            height={fillHeight}
+            className={meta.fill}
+            style={{
+              transition:
+                "y 700ms cubic-bezier(.4,0,.2,1), height 700ms cubic-bezier(.4,0,.2,1)",
+            }}
+          />
+        </g>
+        {[16, 32.5, 49, 65.5, 82].map((x) => (
+          <rect
+            key={x}
+            x={x}
+            y="13"
+            width="9"
+            height="9"
+            rx="2"
+            fill="#0c0c0e"
+            fillOpacity={0.5}
+            stroke="#34343a"
+            strokeWidth="1"
+          />
+        ))}
+        <rect
+          x="4"
+          y="6"
+          width="92"
+          height="44"
+          rx="11"
+          fill="none"
+          stroke="#34343a"
+          strokeWidth="1.5"
+        />
+        <circle
+          cx="23"
+          cy="52"
+          r="4"
+          fill="#0c0c0e"
+          stroke="#34343a"
+          strokeWidth="1"
+        />
+        <circle
+          cx="77"
+          cy="52"
+          r="4"
+          fill="#0c0c0e"
+          stroke="#34343a"
+          strokeWidth="1"
+        />
+      </svg>
+    </div>
   );
 }
 
@@ -795,9 +947,9 @@ function SaturationBar({ pct, nivel }: { pct: number; nivel: Nivel }) {
   const meta = NIVEL_META[nivel];
   const clamped = Math.max(0, Math.min(100, pct));
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+    <div className="h-2 w-full overflow-hidden rounded-full bg-[#222226]">
       <div
-        className={`h-full rounded-full ${meta.bar} transition-all`}
+        className={`h-full rounded-full ${meta.bar} transition-all duration-700 ease-out`}
         style={{ width: `${clamped}%` }}
       />
     </div>
@@ -807,15 +959,17 @@ function SaturationBar({ pct, nivel }: { pct: number; nivel: Nivel }) {
 function HourlyTrend({
   entries,
   highlightHours,
+  mounted,
 }: {
   entries: PredictionEntry[];
   highlightHours: Set<string>;
+  mounted: boolean;
 }) {
   if (entries.length === 0) return null;
   const max = Math.max(100, ...entries.map((e) => e.saturacion_pct));
   return (
     <div className="flex h-16 items-end gap-[3px]">
-      {entries.map((e) => {
+      {entries.map((e, i) => {
         const heightPct = Math.max((e.saturacion_pct / max) * 100, 4);
         const nivel = mapRawNivel(e.nivel) ?? classifyNivel(e.saturacion_pct);
         const meta = NIVEL_META[nivel];
@@ -827,10 +981,15 @@ function HourlyTrend({
             title={`${e.hora} · ${e.saturacion_pct.toFixed(0)}%`}
           >
             <div
-              className={`absolute bottom-0 w-full rounded-t-sm ${meta.bar} ${
+              className={`absolute bottom-0 w-full origin-bottom rounded-t-sm ${meta.bar} ${
                 active ? "opacity-100" : "opacity-25"
               }`}
-              style={{ height: `${heightPct}%` }}
+              style={{
+                height: `${heightPct}%`,
+                transform: mounted ? "scaleY(1)" : "scaleY(0)",
+                transition: "transform 600ms cubic-bezier(.4,0,.2,1)",
+                transitionDelay: `${Math.min(i * 6, 240)}ms`,
+              }}
             />
           </div>
         );
@@ -902,9 +1061,7 @@ function StationCombobox({
 
   return (
     <div ref={containerRef} className="relative flex flex-col gap-1.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-        {label}
-      </span>
+      <span className={labelCls}>{label}</span>
       <input
         ref={inputRef}
         type="text"
@@ -921,12 +1078,12 @@ function StationCombobox({
           if (!open) setOpen(true);
         }}
         onKeyDown={handleKeyDown}
-        className={`${selectClass} cursor-text`}
+        className={`${inputCls} cursor-text`}
       />
       {open && (
-        <div className="absolute top-full z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 shadow-2xl">
+        <div className="absolute top-full z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-[#34343a] bg-[#0e0e10] shadow-2xl">
           {filtered.length === 0 ? (
-            <p className="px-3 py-2.5 text-sm text-zinc-500">
+            <p className="px-3 py-2.5 text-sm text-[#84827b]">
               Sin resultados para &ldquo;{query}&rdquo;
             </p>
           ) : (
@@ -938,10 +1095,10 @@ function StationCombobox({
                   e.preventDefault();
                   handleSelect(opt.key);
                 }}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-zinc-800 ${
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[#1c1c1f] ${
                   opt.key === value
-                    ? "bg-zinc-800/60 text-cyan-400"
-                    : "text-zinc-200"
+                    ? "bg-[#1c1c1f] text-[#ef4444]"
+                    : "text-[#d4d2cb]"
                 }`}
               >
                 <span className="flex-1 truncate">{opt.displayName}</span>
@@ -1002,7 +1159,7 @@ function TimeSelector({
         <button
           type="button"
           onClick={onUseNow}
-          className="ml-auto rounded-full border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:border-cyan-500 hover:text-cyan-400"
+          className="ml-auto rounded-full border border-[#34343a] px-3 py-1.5 text-xs text-[#9b9a94] hover:border-[#D62828] hover:text-[#ef4444]"
         >
           Usar hora actual
         </button>
@@ -1010,13 +1167,11 @@ function TimeSelector({
 
       {timeMode === "instant" ? (
         <label className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-            Hora
-          </span>
+          <span className={labelCls}>Hora</span>
           <select
             value={instantHour}
             onChange={(e) => onInstantHourChange(e.target.value)}
-            className={selectClass}
+            className={inputCls}
           >
             {hours.map((h) => (
               <option key={h} value={h}>
@@ -1028,13 +1183,11 @@ function TimeSelector({
       ) : (
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-              Desde
-            </span>
+            <span className={labelCls}>Desde</span>
             <select
               value={fromHour}
               onChange={(e) => onFromHourChange(e.target.value)}
-              className={selectClass}
+              className={inputCls}
             >
               {hours.map((h) => (
                 <option key={h} value={h}>
@@ -1044,13 +1197,11 @@ function TimeSelector({
             </select>
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-              Hasta
-            </span>
+            <span className={labelCls}>Hasta</span>
             <select
               value={toHour}
               onChange={(e) => onToHourChange(e.target.value)}
-              className={selectClass}
+              className={inputCls}
             >
               {hours.map((h) => (
                 <option key={h} value={h}>
@@ -1102,7 +1253,7 @@ function ControlPanel(props: {
   } = props;
 
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+    <div className={`flex flex-col gap-5 ${cardCls}`}>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -1153,16 +1304,21 @@ function StationResultCard({
   forecast,
   fullDayEntries,
   highlightHours,
+  mounted,
 }: {
   forecast: StationForecast;
   fullDayEntries: PredictionEntry[];
   highlightHours: Set<string>;
+  mounted: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+    <div className={cardCls}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h3 className="text-lg font-semibold text-zinc-100">
+          <h3
+            className="text-lg font-semibold text-[#f2f1ec]"
+            style={displayFont}
+          >
             {forecast.displayName}
           </h3>
           <div className="flex gap-1">
@@ -1176,57 +1332,63 @@ function StationResultCard({
 
       {forecast.found ? (
         <>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="font-mono text-4xl font-bold tabular-nums text-zinc-50">
-              {forecast.promedio!.toFixed(1)}%
-            </span>
-            <span className="text-sm text-zinc-500">
-              de saturación estimada
-            </span>
-          </div>
-          <div className="mt-3">
-            <SaturationBar pct={forecast.promedio!} nivel={forecast.nivel!} />
-          </div>
-          <dl className="mt-4 grid grid-cols-3 gap-3 text-sm">
+          <div className="mt-5 flex items-center gap-5">
+            <TrainCarGauge pct={forecast.promedio!} nivel={forecast.nivel!} />
             <div>
-              <dt className="text-xs uppercase tracking-wide text-zinc-500">
-                Pico
+              <div className="flex items-baseline gap-2">
+                <span
+                  className="text-5xl font-bold leading-none tabular-nums text-[#f2f1ec]"
+                  style={displayFont}
+                >
+                  {forecast.promedio!.toFixed(1)}%
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-[#84827b]">
+                de saturación estimada
+              </p>
+            </div>
+          </div>
+          <dl className="mt-5 grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-[#84827b]">
+                Peak
               </dt>
-              <dd className="font-mono tabular-nums text-zinc-200">
+              <dd className="font-mono tabular-nums text-[#d4d2cb]">
                 {forecast.maximo!.toFixed(1)}%
               </dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-zinc-500">
+              <dt className="text-xs uppercase tracking-wide text-[#84827b]">
                 Subidas prom.
               </dt>
-              <dd className="font-mono tabular-nums text-zinc-200">
+              <dd className="font-mono tabular-nums text-[#d4d2cb]">
                 {Math.round(forecast.subidasPromedio ?? 0)}
               </dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-zinc-500">
+              <dt className="text-xs uppercase tracking-wide text-[#84827b]">
                 Capacidad
               </dt>
-              <dd className="font-mono tabular-nums text-zinc-200">
+              <dd className="font-mono tabular-nums text-[#d4d2cb]">
                 {forecast.capacidadMax}
               </dd>
             </div>
           </dl>
           {fullDayEntries.length > 0 && (
             <div className="mt-5">
-              <p className="mb-2 text-xs uppercase tracking-wide text-zinc-500">
+              <p className="mb-2 text-xs uppercase tracking-wide text-[#84827b]">
                 Tendencia del día
               </p>
               <HourlyTrend
                 entries={fullDayEntries}
                 highlightHours={highlightHours}
+                mounted={mounted}
               />
             </div>
           )}
         </>
       ) : (
-        <p className="mt-4 text-sm text-zinc-500">
+        <p className="mt-4 text-sm text-[#84827b]">
           No hay predicciones disponibles para esta estación en el horario
           seleccionado.
         </p>
@@ -1244,7 +1406,7 @@ function RouteStrip({
 }) {
   return (
     <div className="overflow-x-auto pb-2">
-      <div className="flex min-w-max items-center px-2 pt-6">
+      <div className="flex min-w-max items-center px-2 pt-7">
         {estaciones.map((est, idx) => {
           const isLast = idx === estaciones.length - 1;
           const segmentLine = !isLast
@@ -1257,26 +1419,31 @@ function RouteStrip({
           const transbordoAqui = transbordos.find((t) => t.enIndice === idx);
           const segmentColor = segmentLine
             ? METRO_LINES.find((l) => l.id === segmentLine)?.color
-            : "#3f3f46";
+            : "#34343a";
           return (
             <div key={`${est.key}-${idx}`} className="flex items-center">
               <div className="relative flex flex-col items-center">
                 {transbordoAqui && (
-                  <span className="absolute -top-6 whitespace-nowrap text-[10px] font-medium text-cyan-400">
+                  <span
+                    className="absolute -top-7 whitespace-nowrap text-[10px] font-semibold text-[#ef4444]"
+                    style={displayFont}
+                  >
                     ⇄ {transbordoAqui.aLinea}
                   </span>
                 )}
                 <div
-                  className={`h-3.5 w-3.5 rounded-full border-2 border-zinc-950 ${dotMeta ? dotMeta.bar : "bg-zinc-600"}`}
+                  className={`h-4 w-4 rounded-full border-[3px] border-[#0e0e10] ${
+                    dotMeta ? dotMeta.bar : "bg-[#34343a]"
+                  }`}
                   title={est.displayName}
                 />
-                <span className="mt-2 w-[72px] text-center text-[11px] leading-tight text-zinc-400">
+                <span className="mt-2 w-[76px] text-center text-[11px] leading-tight text-[#9b9a94]">
                   {est.displayName}
                 </span>
               </div>
               {!isLast && (
                 <div
-                  className="h-1 w-10 sm:w-14"
+                  className="h-[3px] w-10 sm:w-14"
                   style={{ backgroundColor: segmentColor }}
                 />
               )}
@@ -1290,9 +1457,9 @@ function RouteStrip({
 
 function RouteSummaryCard({ route }: { route: RouteForecast }) {
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900 to-zinc-900/40 p-6">
+    <div className={cardClsGradient}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
+        <h3 className="text-sm font-medium uppercase tracking-wide text-[#84827b]">
           Índice de saturación del trayecto
         </h3>
         <NivelChip nivel={route.nivelGlobal} />
@@ -1300,55 +1467,56 @@ function RouteSummaryCard({ route }: { route: RouteForecast }) {
 
       {route.indicePonderado !== null ? (
         <>
-          <div className="mt-2 flex flex-wrap items-baseline gap-2">
-            <span className="font-mono text-5xl font-bold tabular-nums text-zinc-50">
-              {route.indicePonderado.toFixed(1)}%
-            </span>
-            <span className="text-sm text-zinc-500">
-              ponderado por subidas estimadas en cada estación
-            </span>
-          </div>
-          <div className="mt-4">
-            <SaturationBar
+          <div className="mt-3 flex items-center gap-5">
+            <TrainCarGauge
               pct={route.indicePonderado}
               nivel={route.nivelGlobal!}
             />
+            <span
+              className="text-6xl font-bold leading-none tabular-nums text-[#f2f1ec]"
+              style={displayFont}
+            >
+              {route.indicePonderado.toFixed(1)}%
+            </span>
           </div>
+          <p className="mt-2 text-sm text-[#84827b]">
+            ponderado por subidas estimadas en cada estación
+          </p>
           <dl className="mt-5 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
             <div>
-              <dt className="text-xs uppercase tracking-wide text-zinc-500">
+              <dt className="text-xs uppercase tracking-wide text-[#84827b]">
                 Promedio simple
               </dt>
-              <dd className="font-mono tabular-nums text-zinc-200">
+              <dd className="font-mono tabular-nums text-[#d4d2cb]">
                 {route.promedioSimple!.toFixed(1)}%
               </dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-zinc-500">
+              <dt className="text-xs uppercase tracking-wide text-[#84827b]">
                 Peor tramo
               </dt>
-              <dd className="font-mono tabular-nums text-zinc-200">
+              <dd className="font-mono tabular-nums text-[#d4d2cb]">
                 {route.maximo!.toFixed(1)}%
               </dd>
             </div>
             <div>
-              <dt className="text-xs uppercase tracking-wide text-zinc-500">
+              <dt className="text-xs uppercase tracking-wide text-[#84827b]">
                 Estación más crítica
               </dt>
-              <dd className="text-zinc-200">
+              <dd className="text-[#d4d2cb]">
                 {route.estacionMasCritica?.displayName ?? "—"}
               </dd>
             </div>
           </dl>
           {route.estacionesSinDatos.length > 0 && (
-            <p className="mt-4 text-xs text-zinc-500">
+            <p className="mt-4 text-xs text-[#84827b]">
               Sin datos de predicción para:{" "}
               {route.estacionesSinDatos.join(", ")}.
             </p>
           )}
         </>
       ) : (
-        <p className="mt-3 text-sm text-zinc-500">
+        <p className="mt-3 text-sm text-[#84827b]">
           Ninguna de las estaciones del trayecto cuenta con datos de predicción
           para el horario seleccionado.
         </p>
@@ -1359,9 +1527,9 @@ function RouteSummaryCard({ route }: { route: RouteForecast }) {
 
 function RouteStationRow({ forecast }: { forecast: StationForecast }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-zinc-800/60 py-2.5 last:border-0">
+    <div className="flex items-center justify-between gap-3 border-b border-[#222226] py-2.5 last:border-0">
       <div className="flex items-center gap-2">
-        <span className="text-sm text-zinc-300">{forecast.displayName}</span>
+        <span className="text-sm text-[#d4d2cb]">{forecast.displayName}</span>
         <div className="flex gap-1">
           {forecast.lines.map((l) => (
             <LineBadge key={l} lineId={l} />
@@ -1371,7 +1539,7 @@ function RouteStationRow({ forecast }: { forecast: StationForecast }) {
       <div className="flex items-center gap-3">
         {forecast.found ? (
           <>
-            <span className="font-mono text-sm tabular-nums text-zinc-300">
+            <span className="font-mono text-sm tabular-nums text-[#d4d2cb]">
               {forecast.promedio!.toFixed(1)}%
             </span>
             <div className="w-20">
@@ -1379,7 +1547,7 @@ function RouteStationRow({ forecast }: { forecast: StationForecast }) {
             </div>
           </>
         ) : (
-          <span className="text-xs text-zinc-500">Sin datos</span>
+          <span className="text-xs text-[#84827b]">Sin datos</span>
         )}
       </div>
     </div>
@@ -1388,14 +1556,14 @@ function RouteStationRow({ forecast }: { forecast: StationForecast }) {
 
 function NetworkPeakSection({
   allForecasts,
-  stationOptions,
-  getFullDayEntries,
+  hourlyAvgs,
   highlightHours,
+  mounted,
 }: {
   allForecasts: StationForecast[];
-  stationOptions: StationOption[];
-  getFullDayEntries: (key: string) => PredictionEntry[];
+  hourlyAvgs: HourlyAverage[];
   highlightHours: Set<string>;
+  mounted: boolean;
 }) {
   const withData = useMemo(
     () => allForecasts.filter((f) => f.found && f.promedio !== null),
@@ -1412,23 +1580,6 @@ function NetworkPeakSection({
     };
   }, [withData]);
 
-  const hourlyAvgs = useMemo(() => {
-    const map = new Map<string, number[]>();
-    stationOptions.forEach((opt) => {
-      getFullDayEntries(opt.key).forEach((e) => {
-        const arr = map.get(e.hora) ?? [];
-        arr.push(e.saturacion_pct);
-        map.set(e.hora, arr);
-      });
-    });
-    return Array.from(map.entries())
-      .map(([hora, pcts]) => {
-        const avg = average(pcts);
-        return { hora, avg, nivel: classifyNivel(avg) };
-      })
-      .sort((a, b) => a.hora.localeCompare(b.hora));
-  }, [stationOptions, getFullDayEntries]);
-
   if (withData.length === 0) return null;
 
   const peakHour =
@@ -1444,39 +1595,42 @@ function NetworkPeakSection({
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-3">
-        <div className="h-px flex-1 bg-zinc-800" />
-        <span className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-600">
+        <div className="h-px flex-1 bg-[#222226]" />
+        <span className="text-xs font-medium uppercase tracking-[0.18em] text-[#5c5b56]">
           Estadísticas de la red
         </span>
-        <div className="h-px flex-1 bg-zinc-800" />
+        <div className="h-px flex-1 bg-[#222226]" />
       </div>
 
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+      <div className={cardCls}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <p className="text-xs font-medium uppercase tracking-wide text-[#84827b]">
               Saturación promedio por hora — toda la red
             </p>
-            <p className="mt-0.5 text-xs text-zinc-600">
+            <p className="mt-0.5 text-xs text-[#5c5b56]">
               Las barras resaltadas corresponden al horario seleccionado
             </p>
           </div>
           {peakHour && (
-            <div className="shrink-0 rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 py-1.5 text-right">
-              <p className="text-[10px] uppercase tracking-wide text-zinc-500">
-                Hora pico
+            <div className="shrink-0 rounded-lg border border-[#34343a] bg-[#1c1c1f] px-3 py-1.5 text-right">
+              <p className="text-[10px] uppercase tracking-wide text-[#84827b]">
+                Hora peak
               </p>
-              <p className="font-mono text-sm font-semibold text-zinc-100">
+              <p
+                className="text-sm font-semibold text-[#f2f1ec]"
+                style={displayFont}
+              >
                 {peakHour.hora}
               </p>
-              <p className="font-mono text-xs text-zinc-400">
+              <p className="font-mono text-xs text-[#9b9a94]">
                 {peakHour.avg.toFixed(1)}%
               </p>
             </div>
           )}
         </div>
         <div className="mt-4 flex h-24 items-end gap-[2px]">
-          {hourlyAvgs.map(({ hora, avg, nivel }) => {
+          {hourlyAvgs.map(({ hora, avg, nivel }, i) => {
             const heightPct = Math.max((avg / maxAvg) * 100, 4);
             const meta = NIVEL_META[nivel];
             const active = highlightHours.has(hora);
@@ -1487,18 +1641,23 @@ function NetworkPeakSection({
                 title={`${hora} · ${avg.toFixed(1)}%`}
               >
                 <div
-                  className={`absolute bottom-0 w-full rounded-t-sm transition-all ${meta.bar} ${
+                  className={`absolute bottom-0 w-full origin-bottom rounded-t-sm ${meta.bar} ${
                     active
-                      ? "opacity-100 ring-1 ring-cyan-500/40"
+                      ? "opacity-100 ring-1 ring-[#D62828]/40"
                       : "opacity-20"
                   }`}
-                  style={{ height: `${heightPct}%` }}
+                  style={{
+                    height: `${heightPct}%`,
+                    transform: mounted ? "scaleY(1)" : "scaleY(0)",
+                    transition: "transform 600ms cubic-bezier(.4,0,.2,1)",
+                    transitionDelay: `${Math.min(i * 5, 220)}ms`,
+                  }}
                 />
               </div>
             );
           })}
         </div>
-        <div className="mt-1.5 flex justify-between text-[10px] text-zinc-600">
+        <div className="mt-1.5 flex justify-between text-[10px] text-[#5c5b56]">
           <span>06:00</span>
           <span>10:00</span>
           <span>14:00</span>
@@ -1508,22 +1667,22 @@ function NetworkPeakSection({
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+        <div className={cardCls}>
           <div className="mb-3 flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-rose-500" />
-            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <p className="text-xs font-medium uppercase tracking-wide text-[#84827b]">
               Más saturadas — horario actual
             </p>
           </div>
           {topStations.map((f, i) => (
             <div
               key={f.key}
-              className="flex items-center gap-2 border-b border-zinc-800/60 py-2.5 last:border-0"
+              className="flex items-center gap-2 border-b border-[#222226] py-2.5 last:border-0"
             >
-              <span className="w-4 shrink-0 text-xs font-mono text-zinc-600">
+              <span className="w-4 shrink-0 text-xs font-mono text-[#5c5b56]">
                 {i + 1}
               </span>
-              <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">
+              <span className="min-w-0 flex-1 truncate text-sm text-[#d4d2cb]">
                 {f.displayName}
               </span>
               <div className="flex shrink-0 gap-1">
@@ -1531,29 +1690,29 @@ function NetworkPeakSection({
                   <LineBadge key={l} lineId={l} />
                 ))}
               </div>
-              <span className="shrink-0 font-mono text-sm tabular-nums text-zinc-200">
+              <span className="shrink-0 font-mono text-sm tabular-nums text-[#d4d2cb]">
                 {f.promedio!.toFixed(1)}%
               </span>
             </div>
           ))}
         </div>
 
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+        <div className={cardCls}>
           <div className="mb-3 flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <p className="text-xs font-medium uppercase tracking-wide text-[#84827b]">
               Menos saturadas — horario actual
             </p>
           </div>
           {bottomStations.map((f, i) => (
             <div
               key={f.key}
-              className="flex items-center gap-2 border-b border-zinc-800/60 py-2.5 last:border-0"
+              className="flex items-center gap-2 border-b border-[#222226] py-2.5 last:border-0"
             >
-              <span className="w-4 shrink-0 text-xs font-mono text-zinc-600">
+              <span className="w-4 shrink-0 text-xs font-mono text-[#5c5b56]">
                 {i + 1}
               </span>
-              <span className="min-w-0 flex-1 truncate text-sm text-zinc-300">
+              <span className="min-w-0 flex-1 truncate text-sm text-[#d4d2cb]">
                 {f.displayName}
               </span>
               <div className="flex shrink-0 gap-1">
@@ -1561,7 +1720,7 @@ function NetworkPeakSection({
                   <LineBadge key={l} lineId={l} />
                 ))}
               </div>
-              <span className="shrink-0 font-mono text-sm tabular-nums text-zinc-200">
+              <span className="shrink-0 font-mono text-sm tabular-nums text-[#d4d2cb]">
                 {f.promedio!.toFixed(1)}%
               </span>
             </div>
@@ -1569,6 +1728,64 @@ function NetworkPeakSection({
         </div>
       </div>
     </div>
+  );
+}
+
+function Hero({
+  peakHour,
+  isLoading,
+}: {
+  peakHour: HourlyAverage | null;
+  isLoading: boolean;
+}) {
+  const meta = peakHour ? NIVEL_META[peakHour.nivel] : null;
+  return (
+    <header className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium uppercase tracking-[0.22em] text-[#D62828]">
+          Metro de Santiago · Predictor de saturación
+        </span>
+        <h1
+          className="text-4xl font-bold leading-[0.95] tracking-tight text-[#f2f1ec] sm:text-5xl"
+          style={displayFont}
+        >
+          ¿Qué tan lleno
+          <br />
+          va a estar el metro?
+        </h1>
+        <p className="max-w-md text-sm text-[#9b9a94] sm:text-base">
+          Estimaciones de saturación por estación, línea y trayecto.
+        </p>
+      </div>
+
+      <div className="shrink-0 rounded-2xl border border-[#27272b] bg-[#161618] px-5 py-4">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-[#84827b]">
+          Hora peak de la red hoy
+        </p>
+        {isLoading || !peakHour ? (
+          <p
+            className="mt-1 text-2xl font-bold text-[#5c5b56]"
+            style={displayFont}
+          >
+            —
+          </p>
+        ) : (
+          <div className="mt-1 flex items-center gap-3">
+            <span
+              className="text-3xl font-bold tabular-nums text-[#f2f1ec]"
+              style={displayFont}
+            >
+              {peakHour.hora}
+            </span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${meta!.chip}`}
+            >
+              {peakHour.avg.toFixed(0)}% · {meta!.label}
+            </span>
+          </div>
+        )}
+      </div>
+    </header>
   );
 }
 
@@ -1585,6 +1802,8 @@ export default function Home() {
     getFullDayEntries,
     getAllStationForecasts,
   } = useMetroPredictor();
+
+  const mounted = useEntrance(80);
 
   const [mode, setMode] = useState<"single" | "route">("single");
   const [singleStationKey, setSingleStationKey] = useState<string>("");
@@ -1665,24 +1884,29 @@ export default function Home() {
     [isLoading, isError, getAllStationForecasts, timeSelection, hours.length],
   );
 
+  const hourlyAvgs = useMemo(
+    () => computeNetworkHourlyAverages(stationOptions, getFullDayEntries),
+    [stationOptions, getFullDayEntries],
+  );
+
+  const peakHour = useMemo(() => {
+    if (hourlyAvgs.length === 0) return null;
+    return hourlyAvgs.reduce(
+      (best, h) => (h.avg > best.avg ? h : best),
+      hourlyAvgs[0],
+    );
+  }, [hourlyAvgs]);
+
   return (
-    <div className="min-h-screen bg-zinc-950 font-sans text-zinc-100">
+    <div
+      className={`${inter.variable} ${display.variable} min-h-screen bg-[#0e0e10] text-[#f2f1ec]`}
+      style={{ fontFamily: "var(--font-body)" }}
+    >
       <main className="mx-auto flex max-w-4xl flex-col gap-8 px-6 py-12 sm:px-8">
-        <header className="flex flex-col gap-2">
-          <span className="text-xs font-medium uppercase tracking-[0.2em] text-cyan-500">
-            Predictor de saturación
-          </span>
-          <h1 className="text-3xl font-bold tracking-tight text-zinc-50 sm:text-4xl">
-            ¿Qué tan lleno va a estar el metro?
-          </h1>
-          <p className="max-w-2xl text-sm text-zinc-400 sm:text-base">
-            Estimaciones de saturación para la red de Metro de Santiago mediante
-            predicciones.
-          </p>
-        </header>
+        <Hero peakHour={peakHour} isLoading={isLoading} />
 
         {isLoading && (
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-8 text-center text-sm text-zinc-500">
+          <div className="rounded-2xl border border-[#27272b] bg-[#161618]/60 p-8 text-center text-sm text-[#84827b]">
             Cargando predicciones desde /predictions.json…
           </div>
         )}
@@ -1727,14 +1951,15 @@ export default function Home() {
                 forecast={singleForecast}
                 fullDayEntries={getFullDayEntries(singleStationKey)}
                 highlightHours={highlightHours}
+                mounted={mounted}
               />
             )}
 
             {mode === "route" &&
               (routeForecast ? (
                 <div className="flex flex-col gap-6">
-                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-                    <p className="mb-1 text-xs uppercase tracking-wide text-zinc-500">
+                  <div className={cardCls}>
+                    <p className="mb-1 text-xs uppercase tracking-wide text-[#84827b]">
                       Recorrido
                     </p>
                     <RouteStrip
@@ -1743,8 +1968,8 @@ export default function Home() {
                     />
                   </div>
                   <RouteSummaryCard route={routeForecast} />
-                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-                    <p className="mb-2 text-xs uppercase tracking-wide text-zinc-500">
+                  <div className={cardCls}>
+                    <p className="mb-2 text-xs uppercase tracking-wide text-[#84827b]">
                       Detalle por estación
                     </p>
                     {routeForecast.estaciones.map((est, i) => (
@@ -1753,7 +1978,7 @@ export default function Home() {
                   </div>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 text-sm text-zinc-500">
+                <div className="rounded-2xl border border-[#27272b] bg-[#161618]/60 p-6 text-sm text-[#84827b]">
                   Selecciona dos estaciones para calcular el trayecto. Si no
                   aparece ninguna ruta, puede ser que alguna de las estaciones
                   no esté identificada en la topología de líneas usada por esta
@@ -1763,21 +1988,22 @@ export default function Home() {
 
             <NetworkPeakSection
               allForecasts={allForecasts}
-              stationOptions={stationOptions}
-              getFullDayEntries={getFullDayEntries}
+              hourlyAvgs={hourlyAvgs}
               highlightHours={highlightHours}
+              mounted={mounted}
             />
           </>
         )}
 
-        <footer className="mt-4 text-xs text-zinc-600">
-          Datos: predicciones basadas en datos reales del{" "}
+        <footer className="mt-2 text-xs text-[#46453f]">
+          Datos: predicciones basadas en registros del{" "}
           <a
             href="https://www.dtpm.cl/"
             target="_blank"
             rel="noopener noreferrer"
+            className="text-[#5c5b56] underline underline-offset-2 transition-colors hover:text-[#84827b]"
           >
-            Directorio de Transporte Público Metropolitano (dtpm.cl)
+            Directorio de Transporte Público Metropolitano
           </a>
           .
         </footer>
