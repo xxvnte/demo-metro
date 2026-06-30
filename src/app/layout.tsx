@@ -13,8 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Demo Metro",
+  title: "MetroPredict",
   description: "Demo Metro - Predicciones de saturación",
+  icons: {
+    icon: "/metrologo.webp",
+  },
 };
 
 export default function RootLayout({
