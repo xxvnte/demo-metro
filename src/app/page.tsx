@@ -270,7 +270,7 @@ const METRO_LINES: MetroLine[] = [
     color: "#92278F",
     stations: [
       "Cerrillos",
-      "PDTE Pedro Aguirre Cerda",
+      "Pdte Pedro Aguirre Cerda",
       "Lo Valledor",
       "Franklin",
       "Bio Bío",
